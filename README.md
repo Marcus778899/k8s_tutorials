@@ -53,4 +53,4 @@ submit kubeadm token create command \
 `kubectl get pods -A -o wide`
 ![alt text](./image/k8s.png)
 
-## YAML enginner
+## YAML engineer
