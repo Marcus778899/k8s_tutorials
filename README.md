@@ -1,41 +1,56 @@
-# Install K8s with kubeadm cluster
+# K8s tutorials
 
-### Before you execute scripts. Please make sure that /etc/hosts and ssh-keygen set finished(id-rsa.pub must be in master authorize)
+## Install k8s cluster with cri-dockerd
 
-1. check execute **systemCheck.sh** to check every node status
-    * Make sure that ssh is ok and chromy is activate
-2. execute **systemcSetting.sh** to set every node resource, firewall and swap
-    * suggest that copy the original limits.conf make you easy roll back to your orinal status
-3. execute **download.sh** for wget evey k8s componets(will save in ./package/download)
-4. execute **setup.sh** to install componets into system
-    * after execute this script, edit /etc/containerd/config.toml => SystemdCgroup = true and "systemctl restart containerd" 
-5. execute **finalStep.sh** to finish install k8s main program
-    * this action will reboot all nodes.please have a little patience
-6. when the node restart over.Please command in every node
+### every node
+
+before install steps, check these items
+>os kernel is Ubuntu22.04 \
+>every node ip is fixed \
+>at least two nodes,one for master, another for worker \
+>please make sure that master node id.ras.pub is in every node authorized_keys
+
+1. Install Docker-ce & cri-dockerd
+    * Execute ./bin/InstallDocker.sh
+    * sudo nano /usr/lib/systemd/system/cri-docker.service \
+        `ExecStart=/usr/bin/cri-dockerd --container-runtime-endpoint fd:// --network-plugin=cni --cni-bin-dir=/opt/cni/bin --cni-cache-dir=/var/lib/cni/cache --cni-conf-dir=/etc/cni/net.d`
+    * Execute `sudo systemctl daemon-reload;sudo systemctl restart cri-docker.service`
+    * check `docker info` and `sudo systemctl status cri-docker.service`
+2. Execute ./bin/Setup.sh
+    * setting resource,iptable,and swap
+3. ExecInstall ./bin/InstallK8sComponenets.sh
+    * Install k8s components in every node
+
+### master node
+
     ```bash
-    sudo apt-get install -y kubelet kubeadm kubectl apt-transport-https ca-certificates curl gpg
-    # lock the version
-    sudo apt-mark hold kubelet kubeadm kubectl
-    ```
-7. on the master node execute these commands(user)
-    ```bash
-    mkdir -p $HOME/.kube;cd $HOME/.kube
-    sudo kubeadm config print init-defaults --component-configs KubeProxyConfiguration,KubeletConfiguration > $HOME/.kube/kubeadm-config.yaml
-    sudo nano kubeadm-config.yaml # revise ip(advertiseAddress and podSubnet)
-    sudo kubeadm init --config kubeadm-config.yaml --dry-run # check syntax
-    sudo kubeadm config images pull --config kubeadm-config.yaml #pull image
-    sudo kubeadm init --config kubeadm-config.yaml --upload-certs
+    # need to specify cri-socket
+    sudo kubeadm config images pull --cri-socket unix:///var/run/cri-dockerd.sock
+    # check your ip 
+    sudo kubeadm init \
+        --apiserver-advertise-address={your-master-ip} \
+        --pod-network-cidr=10.244.0.0/16 \
+        --service-cidr=10.96.0.0/12  \
+        --token-ttl=0 \
+        --cri-socket unix:///run/cri-dockerd.sock \
+        --upload-certs
+    mkdir -p $HOME/.kube
     sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
     sudo chown $(id -u):$(id -g) $HOME/.kube/config
-    sudo kubeadm token create --print-join-command >> ~/.kube/join_token.txt
-    echo "token is on $HOME/.kube/join_token.txt"
-    ```
-8. refer $HOME/.kube/join_token.txt" to your worker node and install is Finish
-9. pod network setting
-    ```bash
-    kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/custom-resources.yaml
-    wget https://raw.githubusercontent.com/projectcalico/calico/v3.25.0/manifests/custom-resources.yaml
-    # resive cidr with your pod-network(on master.sh)
-    nano custom-resources.yaml
+    kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/tigera-operator.yaml
+    wget https://raw.githubusercontent.com/projectcalico/calico/v3.29.0/manifests/custom-resources.yaml
+    nano custom-resources.yaml #revise your pod-network-cidr
     kubectl apply -f custom-resources.yaml
+    sudo kubeadm token create --print-join-command # for worker node
     ```
+suggestion => export KUBECONFIG="$HOME/.kube/config"
+
+### worker node
+
+submit kubeadm token create command \
+**remeber to add --cri-socket unix:///var/run/cri-dockerd.sock**
+
+`kubectl get pods -A -o wide`
+![alt text](./image/k8s.png)
+
+## YAML enginner
